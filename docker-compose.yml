@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  corebridge-license-manager:
+    build: .
+    container_name: corebridge-license-manager
+    ports:
+      - "3008:3008"
+    environment:
+      - NODE_ENV=production
+      - PORT=3008
+      - CORE_API_URL=http://172.20.0.1:4001
+      - ENCRYPTION_KEY=corebridge-license-key-2024
+      - JWT_SECRET=corebridge-jwt-secret-2024
+      - DB_HOST=corebridge-license-db
+      - DB_PORT=5432
+      - DB_NAME=corebridge_licensing
+      - DB_USER=corebridge
+      - DB_PASS=corebridge123
+    networks:
+      - app-network
+    depends_on:
+      - corebridge-license-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  corebridge-license-db:
+    image: postgres:15-alpine
+    container_name: corebridge-license-db
+    environment:
+      - POSTGRES_DB=corebridge_licensing
+      - POSTGRES_USER=corebridge
+      - POSTGRES_PASSWORD=corebridge123
+      - POSTGRES_INITDB_ARGS="--encoding=UTF-8"
+    volumes:
+      - license_db_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U corebridge -d corebridge_licensing"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  license_db_data:
+    driver: local
+
+networks:
+  app-network:
+    external: true
+    name: corebridge-core_app-network 

@@ -1,0 +1,64 @@
+{
+  "name": "corebridge-plugin-license-manager",
+  "version": "1.0.0",
+  "description": "CoreBridge License Manager - Comprehensive licensing system for plugin management",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "jest --testPathPattern=tests/unit",
+    "test:integration": "jest --testPathPattern=tests/integration",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "docker:build": "docker build -t corebridge-license-manager .",
+    "docker:run": "docker run -p 3008:3008 corebridge-license-manager",
+    "docker:compose:up": "docker-compose up -d",
+    "docker:compose:down": "docker-compose down",
+    "docker:compose:logs": "docker-compose logs -f"
+  },
+  "keywords": [
+    "corebridge",
+    "plugin",
+    "license",
+    "management",
+    "security",
+    "validation"
+  ],
+  "author": "CoreBridge Technologies",
+  "license": "Proprietary",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "bcrypt": "^5.1.1",
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "moment": "^2.29.4",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.10.1",
+    "pg": "^8.16.0",
+    "qrcode": "^1.5.4",
+    "sequelize": "^6.37.7",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CoreBridgeTechnologies/corebridge-plugin-license-manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CoreBridgeTechnologies/corebridge-plugin-license-manager/issues"
+  },
+  "homepage": "https://github.com/CoreBridgeTechnologies/corebridge-plugin-license-manager#readme"
+}

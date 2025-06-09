@@ -1,0 +1,41 @@
+{
+  "id": "corebridge-license-manager",
+  "name": "CoreBridge License Manager",
+  "version": "1.0.0",
+  "description": "Comprehensive license management system for CoreBridge plugins with time-bound licensing, activation validation, and expiration notifications",
+  "author": "CoreBridge Technologies",
+  "license": "Proprietary",
+  "main": "src/index.js",
+  "type": "service",
+  "category": "system",
+  "tags": ["licensing", "security", "management", "validation"],
+  "port": 3008,
+  "endpoints": {
+    "/health": "Health check endpoint",
+    "/api/licenses": "License management operations",
+    "/api/licenses/generate": "Generate new licenses",
+    "/api/licenses/validate": "Validate license keys",
+    "/api/licenses/activate": "Activate licenses",
+    "/api/licenses/status": "Check license status",
+    "/api/bundles": "License bundle management",
+    "/": "License Management Dashboard"
+  },
+  "dependencies": {
+    "external": [],
+    "system": ["database", "encryption"]
+  },
+  "permissions": {
+    "database": "read-write",
+    "encryption": "full",
+    "system": "core-integration"
+  },
+  "configuration": {
+    "encryption_key": "License encryption key",
+    "license_validity_periods": [1, 3, 5],
+    "notification_intervals": [90, 60, 45, 30, 15]
+  },
+  "healthCheck": {
+    "timeout": 5000,
+    "retries": 3
+  }
+} 
