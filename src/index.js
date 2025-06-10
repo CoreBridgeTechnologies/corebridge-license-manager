@@ -212,15 +212,78 @@ const LicenseActivation = sequelize.define('LicenseActivation', {
     ]
 });
 
+// Plugin model for tracking available plugins
+const Plugin = sequelize.define('Plugin', {
+    id: {
+        type: DataTypes.STRING,
+        primaryKey: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    description: {
+        type: DataTypes.TEXT
+    },
+    version: {
+        type: DataTypes.STRING
+    },
+    author: {
+        type: DataTypes.STRING
+    },
+    category: {
+        type: DataTypes.STRING
+    },
+    tags: {
+        type: DataTypes.ARRAY(DataTypes.STRING),
+        defaultValue: []
+    },
+    status: {
+        type: DataTypes.ENUM('discovered', 'enabled', 'disabled'),
+        defaultValue: 'discovered'
+    },
+    healthStatus: {
+        type: DataTypes.ENUM('healthy', 'unhealthy', 'unreachable'),
+        field: 'health_status'
+    },
+    lastSeen: {
+        type: DataTypes.DATE,
+        field: 'last_seen'
+    }
+}, {
+    tableName: 'plugins',
+    timestamps: true
+});
+
 // Define associations
 License.hasMany(LicenseActivation, { foreignKey: 'licenseId', as: 'activations' });
 LicenseActivation.belongsTo(License, { foreignKey: 'licenseId', as: 'license' });
+
+// Add plugin associations
+// License.belongsTo(Plugin, { foreignKey: 'pluginId', as: 'plugin' });
+// Plugin.hasMany(License, { foreignKey: 'pluginId', as: 'licenses' });
 
 // Express app setup
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrcAttr: ["'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            mediaSrc: ["'self'"],
+            frameSrc: ["'none'"],
+            upgradeInsecureRequests: null,
+        },
+    },
+}));
 app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -393,6 +456,31 @@ app.get('/', (req, res) => {
                     background: #f8d7da; 
                     color: #721c24; 
                 }
+                .status-badge.revoked { 
+                    background: #343a40; 
+                    color: white; 
+                }
+                .status-badge.suspended { 
+                    background: #ffeaa7; 
+                    color: #2d3436; 
+                }
+                .btn-small { 
+                    padding: 6px 12px; 
+                    font-size: 12px; 
+                    border-radius: 4px; 
+                    border: none; 
+                    cursor: pointer; 
+                    font-weight: 600;
+                    transition: all 0.2s;
+                }
+                .btn-danger { 
+                    background: #dc3545; 
+                    color: white; 
+                }
+                .btn-danger:hover { 
+                    background: #c82333; 
+                    transform: translateY(-1px);
+                }
                 .loading { 
                     display: inline-block; 
                     width: 20px; 
@@ -406,13 +494,202 @@ app.get('/', (req, res) => {
                     0% { transform: rotate(0deg); } 
                     100% { transform: rotate(360deg); } 
                 }
+                .plugin-search-container {
+                    position: relative;
+                    width: 100%;
+                }
+                .plugin-search-input {
+                    width: 100%;
+                    padding: 12px 40px 12px 12px;
+                    border: 2px solid #ddd;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    transition: border-color 0.3s;
+                    background: white;
+                }
+                .plugin-search-input:focus {
+                    outline: none;
+                    border-color: #667eea;
+                }
+                .plugin-search-icon {
+                    position: absolute;
+                    right: 12px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    color: #999;
+                    pointer-events: none;
+                }
+                .plugin-suggestions {
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    background: white;
+                    border: 2px solid #ddd;
+                    border-top: none;
+                    border-radius: 0 0 8px 8px;
+                    max-height: 200px;
+                    overflow-y: auto;
+                    z-index: 1000;
+                    display: none;
+                }
+                .plugin-suggestion {
+                    padding: 12px;
+                    cursor: pointer;
+                    transition: background-color 0.2s;
+                    border-bottom: 1px solid #f0f0f0;
+                }
+                .plugin-suggestion:hover {
+                    background: #f8f9fa;
+                }
+                .plugin-suggestion:last-child {
+                    border-bottom: none;
+                }
+                .plugin-suggestion.selected {
+                    background: #667eea;
+                    color: white;
+                }
+                .plugin-id {
+                    font-weight: 600;
+                    font-family: monospace;
+                    color: #667eea;
+                }
+                .plugin-suggestion.selected .plugin-id {
+                    color: white;
+                }
+                .plugin-name {
+                    font-size: 14px;
+                    margin-top: 2px;
+                }
+                .plugin-category {
+                    font-size: 11px;
+                    opacity: 0.7;
+                    margin-top: 2px;
+                    text-transform: uppercase;
+                }
+                .plugin-status {
+                    font-size: 10px;
+                    padding: 2px 6px;
+                    border-radius: 10px;
+                    margin-top: 4px;
+                    display: inline-block;
+                }
+                .plugin-status.enabled {
+                    background: #d4edda;
+                    color: #155724;
+                }
+                .plugin-status.disabled {
+                    background: #f8d7da;
+                    color: #721c24;
+                }
+                .plugin-status.discovered {
+                    background: #fff3cd;
+                    color: #856404;
+                }
+                .sync-button {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    margin-left: 10px;
+                    font-size: 14px;
+                    padding: 8px 16px;
+                }
+                
+                /* Plugin Search Dropdown Styles */
+                .plugin-search-container {
+                    position: relative;
+                    width: 100%;
+                }
+                
+                .search-dropdown {
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    background: white;
+                    border: 1px solid #ddd;
+                    border-top: none;
+                    border-radius: 0 0 8px 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    max-height: 300px;
+                    overflow-y: auto;
+                    z-index: 1000;
+                    display: none;
+                }
+                
+                .search-dropdown.active {
+                    display: block;
+                }
+                
+                .dropdown-item {
+                    padding: 12px 15px;
+                    border-bottom: 1px solid #f0f0f0;
+                    cursor: pointer;
+                    transition: background-color 0.2s;
+                }
+                
+                .dropdown-item:hover,
+                .dropdown-item.highlighted {
+                    background-color: #f8f9ff;
+                }
+                
+                .dropdown-item:last-child {
+                    border-bottom: none;
+                }
+                
+                .plugin-name {
+                    font-weight: bold;
+                    color: #333;
+                    margin-bottom: 4px;
+                }
+                
+                .plugin-details {
+                    font-size: 12px;
+                    color: #666;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                
+                .plugin-category {
+                    background: #e3f2fd;
+                    color: #1976d2;
+                    padding: 2px 6px;
+                    border-radius: 12px;
+                    font-size: 10px;
+                    text-transform: uppercase;
+                }
+                
+                .plugin-status {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+                
+                .status-dot {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 50%;
+                    background: #4caf50;
+                }
+                
+                .status-dot.unhealthy {
+                    background: #f44336;
+                }
+                
+                .no-results {
+                    padding: 15px;
+                    text-align: center;
+                    color: #999;
+                    font-style: italic;
+                }
             </style>
         </head>
         <body>
             <div class="container">
                 <div class="header">
                     <h1>🔐 CoreBridge License Manager</h1>
-                    <p>Professional Plugin Licensing System</p>
+                    <p>Enterprise-grade software licensing and activation system</p>
+                    <button onclick="syncPlugins()" class="btn sync-button" style="margin-top: 20px;">🔄 Refresh Plugins</button>
+                    <div id="syncStatus" style="margin-top: 10px; font-size: 14px;"></div>
                 </div>
 
                 <div class="grid">
@@ -422,7 +699,10 @@ app.get('/', (req, res) => {
                         <form id="generateForm">
                             <div class="form-group">
                                 <label for="pluginId">Plugin ID:</label>
-                                <input type="text" id="pluginId" required placeholder="e.g., corebridge-ping">
+                                <div class="plugin-search-container">
+                                    <input type="text" id="pluginId" required placeholder="Type to search plugins..." autocomplete="off">
+                                    <div class="search-dropdown" id="pluginIdDropdown"></div>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="customerName">Customer Name:</label>
@@ -457,7 +737,10 @@ app.get('/', (req, res) => {
                             </div>
                             <div class="form-group">
                                 <label for="validatePlugin">Plugin ID:</label>
-                                <input type="text" id="validatePlugin" required placeholder="e.g., corebridge-ping">
+                                <div class="plugin-search-container">
+                                    <input type="text" id="validatePlugin" required placeholder="Type to search plugins..." autocomplete="off">
+                                    <div class="search-dropdown" id="validatePluginDropdown"></div>
+                                </div>
                             </div>
                             <button type="submit" class="btn">Validate License</button>
                         </form>
@@ -468,7 +751,10 @@ app.get('/', (req, res) => {
                 <!-- Licenses List Section -->
                 <div class="section">
                     <h2>📋 License Management</h2>
-                    <button onclick="loadLicenses()" class="btn">Refresh Licenses</button>
+                    <div style="margin-bottom: 20px;">
+                        <button onclick="loadLicenses()" class="btn">Refresh Licenses</button>
+                        <button onclick="syncPlugins()" class="btn sync-button">🔄 Refresh Plugins</button>
+                    </div>
                     <div id="licensesList" style="margin-top: 20px;"></div>
                 </div>
             </div>
@@ -581,25 +867,359 @@ app.get('/', (req, res) => {
                                 <div class="license-card">
                                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                                         <strong>\${license.pluginId}</strong>
-                                        <span class="status-badge \${license.status}">\${license.status}</span>
+                                        <div style="display: flex; align-items: center; gap: 10px;">
+                                            <span class="status-badge \${license.status}">\${license.status}</span>
+                                            \${license.status === 'active' ? 
+                                                '<button onclick="revokeLicense(\\'' + license.id + '\\')" class="btn-small btn-danger">🚫 Revoke</button>' : 
+                                                license.status === 'revoked' && license.metadata?.revocationReason ? 
+                                                '<span title="Revoked: ' + (license.metadata.revocationReason || '') + '" style="color: #666; font-size: 12px;">ℹ️</span>' : ''
+                                            }
+                                        </div>
                                     </div>
                                     <p><strong>Customer:</strong> \${license.customerName} (\${license.customerEmail})</p>
                                     <p><strong>License Key:</strong> \${license.licenseKey.substring(0, 20)}...</p>
                                     <p><strong>Type:</strong> \${license.licenseType}</p>
                                     <p><strong>Expires:</strong> \${new Date(license.expiresAt).toLocaleDateString()}</p>
                                     <p><strong>Activations:</strong> \${license.activationCount}/\${license.maxActivations}</p>
+                                    \${license.status === 'revoked' && license.metadata?.revokedAt ? 
+                                        '<p><strong>Revoked:</strong> ' + new Date(license.metadata.revokedAt).toLocaleDateString() + '</p>' : ''
+                                    }
+                                    \${license.metadata?.revocationReason ? 
+                                        '<p><strong>Reason:</strong> ' + (license.metadata.revocationReason || '') + '</p>' : ''
+                                    }
                                 </div>
                             \`).join('');
                         } else {
                             throw new Error(data.error || 'Failed to load licenses');
                         }
                     } catch (error) {
-                        container.innerHTML = \`<div class="result error">Error loading licenses: \${error.message}</div>\`;
+                        container.innerHTML = '<div class="result error">Error loading licenses: ' + error.message + '</div>';
+                    }
+                }
+
+                // Revoke License
+                async function revokeLicense(licenseId) {
+                    const reason = prompt('Please enter a reason for revoking this license:');
+                    if (!reason) {
+                        return; // User cancelled
+                    }
+
+                    if (!confirm('Are you sure you want to revoke this license? This action cannot be undone.')) {
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch('/api/licenses/' + licenseId + '/revoke', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ reason })
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            alert('✅ License revoked successfully!');
+                            loadLicenses(); // Refresh the license list
+                        } else {
+                            throw new Error(data.error || 'Failed to revoke license');
+                        }
+                    } catch (error) {
+                        alert('❌ Error revoking license: ' + error.message);
                     }
                 }
 
                 // Load licenses on page load
                 loadLicenses();
+                
+                // Global plugins data
+                let availablePlugins = [];
+                
+                // Initialize plugin search dropdowns
+                function initializePluginSearch() {
+                    const pluginIdInput = document.getElementById('pluginId');
+                    const pluginIdDropdown = document.getElementById('pluginIdDropdown');
+                    const validatePluginInput = document.getElementById('validatePlugin');
+                    const validatePluginDropdown = document.getElementById('validatePluginDropdown');
+                    
+                    // Setup search for generate form
+                    setupPluginSearch(pluginIdInput, pluginIdDropdown);
+                    // Setup search for validate form
+                    setupPluginSearch(validatePluginInput, validatePluginDropdown);
+                }
+                
+                // Setup plugin search functionality for a specific input/dropdown pair
+                function setupPluginSearch(input, dropdown) {
+                    let highlightedIndex = -1;
+                    let filteredPlugins = [];
+                    
+                    // Focus event - show all plugins
+                    input.addEventListener('focus', () => {
+                        const query = input.value.toLowerCase();
+                        filteredPlugins = filterPlugins(query);
+                        renderDropdown(dropdown, filteredPlugins);
+                        showDropdown(dropdown);
+                    });
+                    
+                    // Input event - filter as user types
+                    input.addEventListener('input', (e) => {
+                        const query = e.target.value.toLowerCase();
+                        filteredPlugins = filterPlugins(query);
+                        highlightedIndex = -1;
+                        renderDropdown(dropdown, filteredPlugins);
+                        showDropdown(dropdown);
+                    });
+                    
+                    // Keyboard navigation
+                    input.addEventListener('keydown', (e) => {
+                        if (dropdown.style.display === 'none') return;
+                        
+                        switch(e.key) {
+                            case 'ArrowDown':
+                                e.preventDefault();
+                                highlightedIndex = Math.min(highlightedIndex + 1, filteredPlugins.length - 1);
+                                updateHighlight(dropdown, highlightedIndex);
+                                break;
+                            case 'ArrowUp':
+                                e.preventDefault();
+                                highlightedIndex = Math.max(highlightedIndex - 1, -1);
+                                updateHighlight(dropdown, highlightedIndex);
+                                break;
+                            case 'Enter':
+                                e.preventDefault();
+                                if (highlightedIndex >= 0 && filteredPlugins[highlightedIndex]) {
+                                    selectPlugin(input, dropdown, filteredPlugins[highlightedIndex]);
+                                }
+                                break;
+                            case 'Escape':
+                                hideDropdown(dropdown);
+                                input.blur();
+                                break;
+                        }
+                    });
+                    
+                    // Click outside to close
+                    document.addEventListener('click', (e) => {
+                        if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                            hideDropdown(dropdown);
+                        }
+                    });
+                }
+                
+                // Filter plugins based on query
+                function filterPlugins(query) {
+                    if (!query) return availablePlugins;
+                    
+                    return availablePlugins.filter(plugin => {
+                        const searchText = (plugin.id + ' ' + plugin.name + ' ' + plugin.category + ' ' + (plugin.description || '')).toLowerCase();
+                        return searchText.includes(query);
+                    }).sort((a, b) => {
+                        // Prioritize exact ID matches, then name matches
+                        const aIdMatch = a.id.toLowerCase().startsWith(query);
+                        const bIdMatch = b.id.toLowerCase().startsWith(query);
+                        const aNameMatch = a.name.toLowerCase().startsWith(query);
+                        const bNameMatch = b.name.toLowerCase().startsWith(query);
+                        
+                        if (aIdMatch && !bIdMatch) return -1;
+                        if (bIdMatch && !aIdMatch) return 1;
+                        if (aNameMatch && !bNameMatch) return -1;
+                        if (bNameMatch && !aNameMatch) return 1;
+                        
+                        return a.name.localeCompare(b.name);
+                    });
+                }
+                
+                // Render dropdown with filtered plugins
+                function renderDropdown(dropdown, plugins) {
+                    if (plugins.length === 0) {
+                        dropdown.innerHTML = '<div class="no-results">No plugins found</div>';
+                        return;
+                    }
+                    
+                    dropdown.innerHTML = plugins.map((plugin, index) => {
+                        const statusClass = plugin.healthStatus === 'healthy' ? '' : 'unhealthy';
+                        return '<div class="dropdown-item" data-plugin-id="' + plugin.id + '" data-index="' + index + '">' +
+                            '<div class="plugin-name">' + plugin.name + '</div>' +
+                            '<div class="plugin-details">' +
+                                '<div>' +
+                                    '<strong>' + plugin.id + '</strong>' +
+                                    '<span class="plugin-category">' + plugin.category + '</span>' +
+                                '</div>' +
+                                '<div class="plugin-status">' +
+                                    '<span class="status-dot ' + statusClass + '"></span>' +
+                                    '<span>' + plugin.healthStatus + '</span>' +
+                                '</div>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+                    
+                    // Add click handlers
+                    dropdown.querySelectorAll('.dropdown-item').forEach((item, index) => {
+                        item.addEventListener('click', () => {
+                            selectPlugin(dropdown.previousElementSibling, dropdown, plugins[index]);
+                        });
+                    });
+                }
+                
+                // Update highlight
+                function updateHighlight(dropdown, index) {
+                    dropdown.querySelectorAll('.dropdown-item').forEach((item, i) => {
+                        if (i === index) {
+                            item.classList.add('highlighted');
+                            item.scrollIntoView({ block: 'nearest' });
+                        } else {
+                            item.classList.remove('highlighted');
+                        }
+                    });
+                }
+                
+                // Select a plugin
+                function selectPlugin(input, dropdown, plugin) {
+                    input.value = plugin.id;
+                    hideDropdown(dropdown);
+                    
+                    // Trigger change event for validation
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                
+                // Show dropdown
+                function showDropdown(dropdown) {
+                    dropdown.classList.add('active');
+                    dropdown.style.display = 'block';
+                }
+                
+                // Hide dropdown
+                function hideDropdown(dropdown) {
+                    dropdown.classList.remove('active');
+                    dropdown.style.display = 'none';
+                }
+                
+                // Load plugins for search
+                async function loadPluginSuggestions() {
+                    try {
+                        const response = await fetch('/api/plugins/suggestions?limit=50');
+                        const data = await response.json();
+                        const statusDiv = document.getElementById('syncStatus');
+                        
+                        if (data.suggestions) {
+                            availablePlugins = data.suggestions;
+                            
+                            if (statusDiv) {
+                                statusDiv.innerHTML = '✅ ' + data.suggestions.length + ' plugins loaded. Plugin search is now active.';
+                                statusDiv.style.color = 'green';
+                            }
+                        } else {
+                            availablePlugins = [];
+                            if (statusDiv) {
+                                statusDiv.innerHTML = '⚠️ No plugins found. Auto-sync may have failed - try refreshing the page.';
+                                statusDiv.style.color = 'red';
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to load plugin suggestions:', error);
+                        availablePlugins = [];
+                        const statusDiv = document.getElementById('syncStatus');
+                        if (statusDiv) {
+                            statusDiv.innerHTML = '❌ Failed to load plugins. Auto-sync may have failed - try refreshing the page.';
+                            statusDiv.style.color = 'red';
+                        }
+                    }
+                }
+                
+                // Auto-sync plugins and initialize search on page load
+                autoSyncAndInitialize();
+                
+                // Auto-sync function for page load
+                async function autoSyncAndInitialize() {
+                    const statusDiv = document.getElementById('syncStatus');
+                    
+                    if (statusDiv) {
+                        statusDiv.innerHTML = '🔄 Auto-syncing plugins from CoreBridge core system...';
+                        statusDiv.style.color = 'blue';
+                    }
+                    
+                    try {
+                        // First try to sync plugins
+                        const syncResponse = await fetch('/api/plugins/sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        
+                        const syncData = await syncResponse.json();
+                        
+                        if (syncResponse.ok) {
+                            if (statusDiv) {
+                                statusDiv.innerHTML = '✅ Auto-sync complete! ' + syncData.stats.synced + ' new, ' + syncData.stats.updated + ' updated, ' + syncData.stats.total + ' total plugins.';
+                                statusDiv.style.color = 'green';
+                            }
+                        } else {
+                            throw new Error(syncData.error || 'Failed to sync plugins');
+                        }
+                        
+                        // Then load plugin suggestions and initialize search
+                        await loadPluginSuggestions();
+                        initializePluginSearch();
+                        
+                    } catch (error) {
+                        console.warn('Auto-sync failed, falling back to cached plugins:', error);
+                        if (statusDiv) {
+                            statusDiv.innerHTML = '⚠️ Auto-sync failed, using cached plugins. You can manually sync if needed.';
+                            statusDiv.style.color = 'orange';
+                        }
+                        
+                        // Still try to load cached plugins
+                        try {
+                            await loadPluginSuggestions();
+                            initializePluginSearch();
+                        } catch (loadError) {
+                            if (statusDiv) {
+                                statusDiv.innerHTML = '❌ No plugins available. Please click "Sync Plugins" to load from core system.';
+                                statusDiv.style.color = 'red';
+                            }
+                        }
+                    }
+                }
+                
+                // Manual sync plugins function (for the sync button)
+                async function syncPlugins() {
+                    const btn = event.target;
+                    const originalText = btn.innerHTML;
+                    const statusDiv = document.getElementById('syncStatus');
+                    
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="loading"></span> Syncing...';
+                    
+                    if (statusDiv) {
+                        statusDiv.innerHTML = '🔄 Syncing plugins from CoreBridge core system...';
+                        statusDiv.style.color = 'blue';
+                    }
+                    
+                    try {
+                        const response = await fetch('/api/plugins/sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (response.ok) {
+                            if (statusDiv) {
+                                statusDiv.innerHTML = '✅ Sync complete! ' + data.stats.synced + ' new, ' + data.stats.updated + ' updated, ' + data.stats.total + ' total plugins.';
+                                statusDiv.style.color = 'green';
+                            }
+                            loadPluginSuggestions(); // Refresh the plugin search
+                        } else {
+                            throw new Error(data.error || 'Failed to sync plugins');
+                        }
+                    } catch (error) {
+                        if (statusDiv) {
+                            statusDiv.innerHTML = '❌ Sync failed: ' + error.message;
+                            statusDiv.style.color = 'red';
+                        }
+                    }
+                    
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
             </script>
         </body>
         </html>
@@ -706,7 +1326,7 @@ app.post('/api/licenses/validate', async (req, res) => {
         if (license.status !== 'active') {
             return res.json({ 
                 valid: false, 
-                message: `License is ${license.status}` 
+                message: 'License is ' + license.status
             });
         }
 
@@ -870,6 +1490,169 @@ app.get('/api/licenses/expiring', async (req, res) => {
     } catch (error) {
         logger.error('Error fetching expiring licenses:', error);
         res.status(500).json({ error: 'Failed to fetch expiring licenses' });
+    }
+});
+
+// Plugin management endpoints
+
+// Get all plugins with context-aware search
+app.get('/api/plugins', async (req, res) => {
+    try {
+        const { search, category, status, limit = 100 } = req.query;
+        
+        const where = {};
+        const searchConditions = [];
+        
+        if (search) {
+            // Context-aware search across multiple fields
+            const searchTerm = `%${search.toLowerCase()}%`;
+            searchConditions.push(
+                { id: { [Sequelize.Op.iLike]: searchTerm } },
+                { name: { [Sequelize.Op.iLike]: searchTerm } },
+                { description: { [Sequelize.Op.iLike]: searchTerm } },
+                { category: { [Sequelize.Op.iLike]: searchTerm } },
+                { author: { [Sequelize.Op.iLike]: searchTerm } }
+            );
+            
+            // Search in tags array
+            searchConditions.push({
+                tags: { [Sequelize.Op.overlap]: [search.toLowerCase()] }
+            });
+            
+            where[Sequelize.Op.or] = searchConditions;
+        }
+        
+        if (category) where.category = category;
+        if (status) where.status = status;
+
+        const plugins = await Plugin.findAll({
+            where,
+            include: [{
+                model: License,
+                as: 'licenses',
+                attributes: ['id', 'status', 'licenseType', 'expiresAt'],
+                required: false
+            }],
+            order: [
+                ['name', 'ASC'],
+                ['id', 'ASC']
+            ],
+            limit: parseInt(limit)
+        });
+
+        // Add license count to each plugin
+        const pluginsWithStats = plugins.map(plugin => ({
+            ...plugin.toJSON(),
+            licenseCount: plugin.licenses ? plugin.licenses.length : 0,
+            activeLicenses: plugin.licenses ? plugin.licenses.filter(l => l.status === 'active').length : 0
+        }));
+
+        res.json({ 
+            plugins: pluginsWithStats,
+            count: plugins.length
+        });
+
+    } catch (error) {
+        logger.error('Error fetching plugins:', error);
+        res.status(500).json({ error: 'Failed to fetch plugins' });
+    }
+});
+
+// Sync plugins from CoreBridge core system
+app.post('/api/plugins/sync', async (req, res) => {
+    try {
+        logger.info('Starting plugin sync from core system...');
+        
+        const coreResponse = await axios.get(`${CONFIG.CORE_API_URL}/api/plugins`, {
+            timeout: 10000
+        });
+        
+        if (!coreResponse.data || !coreResponse.data.data) {
+            return res.status(400).json({ error: 'Invalid response from core system' });
+        }
+        
+        const corePlugins = coreResponse.data.data;
+        let syncedCount = 0;
+        let updatedCount = 0;
+        
+        for (const corePlugin of corePlugins) {
+            const existingPlugin = await Plugin.findByPk(corePlugin.id);
+            
+            const pluginData = {
+                id: corePlugin.id,
+                name: corePlugin.name || corePlugin.id,
+                description: corePlugin.description || '',
+                version: corePlugin.version || '1.0.0',
+                author: corePlugin.author || 'Unknown',
+                category: corePlugin.category || 'other',
+                tags: corePlugin.tags || [],
+                status: corePlugin.enabled ? 'enabled' : (corePlugin.running ? 'discovered' : 'disabled'),
+                healthStatus: corePlugin.healthStatus || 'unreachable',
+                lastSeen: new Date()
+            };
+            
+            if (existingPlugin) {
+                await existingPlugin.update(pluginData);
+                updatedCount++;
+            } else {
+                await Plugin.create(pluginData);
+                syncedCount++;
+            }
+        }
+        
+        logger.info(`Plugin sync completed: ${syncedCount} new, ${updatedCount} updated`);
+        
+        res.json({
+            success: true,
+            message: 'Plugins synced successfully',
+            stats: {
+                synced: syncedCount,
+                updated: updatedCount,
+                total: corePlugins.length
+            }
+        });
+
+    } catch (error) {
+        logger.error('Error syncing plugins:', error);
+        res.status(500).json({ 
+            error: 'Failed to sync plugins',
+            details: error.message 
+        });
+    }
+});
+
+// Get plugin suggestions for autocomplete
+app.get('/api/plugins/suggestions', async (req, res) => {
+    try {
+        const { q = '', limit = 10 } = req.query;
+        
+        if (!q.trim()) {
+            const plugins = await Plugin.findAll({
+                attributes: ['id', 'name', 'category', 'status', 'healthStatus'],
+                order: [['name', 'ASC']],
+                limit: parseInt(limit)
+            });
+            return res.json({ suggestions: plugins });
+        }
+        
+        const searchTerm = `%${q.toLowerCase()}%`;
+        const plugins = await Plugin.findAll({
+            where: {
+                [Sequelize.Op.or]: [
+                    { id: { [Sequelize.Op.iLike]: searchTerm } },
+                    { name: { [Sequelize.Op.iLike]: searchTerm } },
+                    { category: { [Sequelize.Op.iLike]: searchTerm } }
+                ]
+            },
+            attributes: ['id', 'name', 'category', 'status', 'healthStatus', 'description'],
+            order: [['name', 'ASC']],
+            limit: parseInt(limit)
+        });
+
+        res.json({ suggestions: plugins });
+    } catch (error) {
+        logger.error('Error fetching plugin suggestions:', error);
+        res.status(500).json({ error: 'Failed to fetch suggestions' });
     }
 });
 
