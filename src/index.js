@@ -16,6 +16,9 @@ const fs = require('fs');
 const QRCode = require('qrcode');
 const nodemailer = require('nodemailer');
 
+// RabbitMQ Service
+const RabbitMQService = require('./services/RabbitMQService');
+
 // Configuration
 const CONFIG = {
     PORT: process.env.PORT || 3008,
@@ -31,6 +34,12 @@ const CONFIG = {
     SMTP_PORT: process.env.SMTP_PORT || 587,
     SMTP_USER: process.env.SMTP_USER || '',
     SMTP_PASS: process.env.SMTP_PASS || '',
+    // RabbitMQ Configuration
+    RABBITMQ_HOST: process.env.RABBITMQ_HOST || 'localhost',
+    RABBITMQ_PORT: process.env.RABBITMQ_PORT || 5672,
+    RABBITMQ_USER: process.env.RABBITMQ_USER || 'guest',
+    RABBITMQ_PASS: process.env.RABBITMQ_PASS || 'guest',
+    RABBITMQ_VHOST: process.env.RABBITMQ_VHOST || '/',
     COMPANY_NAME: 'CoreBridge Technologies',
     LICENSE_VALIDITY_DAYS: {
         '1-year': 365,
@@ -38,6 +47,15 @@ const CONFIG = {
         '5-year': 1825
     }
 };
+
+// Initialize RabbitMQ Service
+const rabbitMQService = new RabbitMQService({
+    host: CONFIG.RABBITMQ_HOST,
+    port: CONFIG.RABBITMQ_PORT,
+    username: CONFIG.RABBITMQ_USER,
+    password: CONFIG.RABBITMQ_PASS,
+    vhost: CONFIG.RABBITMQ_VHOST
+});
 
 // Logger setup
 const logger = winston.createLogger({
@@ -1271,6 +1289,24 @@ app.post('/api/licenses/generate', async (req, res) => {
             licenseType
         });
 
+        // Broadcast license creation event via RabbitMQ
+        try {
+            await rabbitMQService.broadcastLicenseCreated({
+                licenseId: license.id,
+                licenseKey: license.licenseKey,
+                pluginId: license.pluginId,
+                customerEmail: license.customerEmail,
+                customerName: license.customerName,
+                licenseType: license.licenseType,
+                status: license.status,
+                expiresAt: license.expiresAt,
+                maxActivations: license.maxActivations
+            });
+            logger.debug('License creation event broadcasted via RabbitMQ');
+        } catch (rabbitError) {
+            logger.warn('Failed to broadcast license creation event via RabbitMQ', { error: rabbitError.message });
+        }
+
         res.json({
             success: true,
             licenseKey: license.licenseKey,
@@ -1369,6 +1405,24 @@ app.post('/api/licenses/validate', async (req, res) => {
                     machineId,
                     pluginId
                 });
+
+                // Broadcast license activation event via RabbitMQ
+                try {
+                    await rabbitMQService.broadcastLicenseActivated({
+                        licenseId: license.id,
+                        licenseKey: license.licenseKey,
+                        pluginId: license.pluginId,
+                        customerEmail: license.customerEmail,
+                        customerName: license.customerName,
+                        licenseType: license.licenseType,
+                        status: license.status,
+                        activationCount: license.activationCount + 1,
+                        maxActivations: license.maxActivations
+                    }, machineId);
+                    logger.debug('License activation event broadcasted via RabbitMQ');
+                } catch (rabbitError) {
+                    logger.warn('Failed to broadcast license activation event via RabbitMQ', { error: rabbitError.message });
+                }
             } else {
                 // Update last seen
                 await existingActivation.update({ lastSeenAt: new Date() });
@@ -1459,6 +1513,23 @@ app.post('/api/licenses/:licenseId/revoke', async (req, res) => {
         );
 
         logger.info('License revoked', { licenseId, reason });
+
+        // Broadcast license revocation event via RabbitMQ
+        try {
+            await rabbitMQService.broadcastLicenseRevoked({
+                licenseId: license.id,
+                licenseKey: license.licenseKey,
+                pluginId: license.pluginId,
+                customerEmail: license.customerEmail,
+                customerName: license.customerName,
+                licenseType: license.licenseType,
+                status: 'revoked',
+                revokedAt: new Date()
+            }, reason || 'Manual revocation');
+            logger.debug('License revocation event broadcasted via RabbitMQ');
+        } catch (rabbitError) {
+            logger.warn('Failed to broadcast license revocation event via RabbitMQ', { error: rabbitError.message });
+        }
 
         res.json({ success: true, message: 'License revoked successfully' });
 
@@ -1694,6 +1765,14 @@ async function startServer() {
         // Sync database models
         await sequelize.sync({ alter: true });
         logger.info('Database models synchronized');
+
+        // Initialize RabbitMQ connection
+        try {
+            await rabbitMQService.connect();
+            logger.info('RabbitMQ service connected successfully');
+        } catch (rabbitError) {
+            logger.warn('Failed to connect to RabbitMQ, continuing without event broadcasting', { error: rabbitError.message });
+        }
 
         // Start the server
         const server = app.listen(CONFIG.PORT, () => {
